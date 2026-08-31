@@ -1,71 +1,80 @@
 import asyncio
-import logging
-from typing import List, Dict, Any, Callable, Optional
+from datetime import datetime
 from playwright.async_api import async_playwright
-from playwright_stealth.stealth import stealth_async
-from database import DatabaseManager
 
 class AdvancedScraper:
-    def __init__(self, concurrency: int = 3):
-        self.concurrency = concurrency
-        self.db = DatabaseManager()
+    def __init__(self, max_concurrency=3, **kwargs):
+        self.max_concurrency = max_concurrency
 
-    async def _scrape_page(self, context, url: str) -> Dict[str, Any]:
-        page = await context.new_page()
-        await stealth_async(page)
-        
-        result = {"url": url, "title": "N/A", "price": "N/A", "status": "ÉCHEC"}
-
-        try:
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+    async def _scrape_page(self, context, url, semaphore):
+        async with semaphore:
+            page = await context.new_page()
             
-            if response and response.status == 200:
-                await page.evaluate("window.scrollBy(0, 300)")
-                await asyncio.sleep(0.5)
-
-                title = await page.title()
+            # Masquage basique du webdriver
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
+            
+            data = {
+                "url": url,
+                "title": None,
+                "price": None,
+                "status": "Erreur",
+                "extracted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            try:
+                # Navigation vers l'URL
+                response = await page.goto(url, timeout=30000, wait_until="domcontentloaded")
                 
-                # Recherche d'éléments de prix
-                price_elem = await page.query_selector(".price, .a-price, [data-test='product-price'], span:has-text('€')")
-                price = await price_elem.inner_text() if price_elem else "Non trouvé"
+                if response and response.status == 200:
+                    # Extraction du titre
+                    title_element = await page.query_selector("h1")
+                    if title_element:
+                        data["title"] = (await title_element.inner_text()).strip()
+                    else:
+                        data["title"] = await page.title()
+                        
+                    # Extraction indicative du prix (sélecteurs courants)
+                    price_element = await page.query_selector("[class*='price'], [id*='price'], .amount")
+                    if price_element:
+                        data["price"] = (await price_element.inner_text()).strip()
+                    
+                    data["status"] = "Succès"
+                else:
+                    data["status"] = f"Échec (HTTP {response.status if response else 'No Response'})"
+                    
+            except Exception as e:
+                data["status"] = f"Erreur: {str(e)}"
+            finally:
+                await page.close()
+                return data
 
-                result.update({
-                    "title": title[:40].strip() if title else "Sans titre",
-                    "price": price.strip().replace("\n", " "),
-                    "status": "SUCCÈS"
-                })
+    async def run(self, urls):
+        return await self.scrape_urls(urls)
 
-        except Exception as e:
-            logging.error(f"Erreur sur {url}: {str(e)}")
-            result["status"] = "TIMEOUT/BLOCAGE"
-        finally:
-            await page.close()
+    async def scrape_batch(self, urls):
+        return await self.scrape_urls(urls)
 
-        # Sauvegarde immédiate
-        self.db.save_product(result)
-        return result
-
-    async def run(self, urls: List[str], real_time_callback: Optional[Callable[[Dict[str, Any], float], None]] = None):
+    async def scrape_urls(self, urls):
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 720}
+            # Lancement du navigateur Chromium en mode headless
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
             )
-
-            semaphore = asyncio.Semaphore(self.concurrency)
-
-            async def sem_task(url: str):
-                async with semaphore:
-                    return await self._scrape_page(context, url)
-
-            tasks = [sem_task(u) for u in urls]
-            total = len(tasks)
-
-            for i, task in enumerate(asyncio.as_completed(tasks), 1):
-                item = await task
-                progress = (i / total) * 100
-                if real_time_callback:
-                    real_time_callback(item, progress)
-
+            
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800}
+            )
+            
+            semaphore = asyncio.Semaphore(self.max_concurrency)
+            tasks = [self._scrape_page(context, url, semaphore) for url in urls]
+            results = await asyncio.gather(*tasks)
+            
+            await context.close()
             await browser.close()
+            return results
