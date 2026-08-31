@@ -39,7 +39,20 @@ if st.button("🚀 Lancer l'extraction", type="primary"):
                     scraper = AdvancedScraper()
         
         # Exécution du scraping
-        results = asyncio.run(scraper.scrape_batch(urls))
+        # Détection et exécution dynamique de la méthode du scraper
+        async def run_scraper():
+            if hasattr(scraper, 'scrape_batch'):
+                return await scraper.scrape_batch(urls)
+            elif hasattr(scraper, 'scrape_urls'):
+                return await scraper.scrape_urls(urls)
+            elif hasattr(scraper, 'run'):
+                return await scraper.run(urls)
+            elif hasattr(scraper, 'scrape'):
+                return await scraper.scrape(urls)
+            else:
+                raise AttributeError("Aucune méthode d'extraction trouvée dans AdvancedScraper.")
+
+        results = asyncio.run(run_scraper())
         st.success("Extraction terminée avec succès !")
 
 # Section d'affichage des résultats
