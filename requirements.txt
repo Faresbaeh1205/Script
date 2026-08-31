@@ -1,6 +1,8 @@
 streamlit
 pandas
 playwright
+playwright-stealth
+httpx
 beautifulsoup4
 requests
 lxml
