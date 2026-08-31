@@ -1,131 +1,54 @@
-import customtkinter as ctk
+import streamlit as st
+import pandas as pd
 import asyncio
-import threading
-from typing import Dict, Any
 from scraper import AdvancedScraper
 from database import DatabaseManager
 
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("blue")
+st.set_page_config(page_title="E-Commerce Scraper Pro", page_icon="⚡", layout="wide")
 
-class AppUI(ctk.CTk):
-    def __init__(self):
-        super().__init__()
+st.title("⚡ E-Commerce Intelligence Studio Pro")
+st.subheader("Scraper & Analyse de prix en temps réel")
 
-        self.title("⚡ E-Commerce Intelligence Studio Pro")
-        self.geometry("1000x700")
+# Initialisation de la BD
+db = DatabaseManager()
 
-        self.db = DatabaseManager()
-        self.scraped_count = 0
+# Sidebar pour la configuration
+st.sidebar.header("⚙️ Configuration")
+max_threads = st.sidebar.slider("Vitesse (Nombre de threads concurrents)", 1, 10, 3)
 
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(3, weight=1)
+# Zone de saisie d'URL
+urls_input = st.text_area("Entrez les URLs des produits à analyser (une par ligne) :", height=150, 
+                          placeholder="https://example.com/produit1\nhttps://example.com/produit2")
 
-        # En-tête
-        self.header_frame = ctk.CTkFrame(self, corner_radius=10)
-        self.header_frame.grid(row=0, column=0, padx=20, pady=(15, 5), sticky="ew")
-
-        self.title_label = ctk.CTkLabel(
-            self.header_frame, 
-            text="⚡ E-Commerce Data Extractor & Scraper Engine", 
-            font=ctk.CTkFont(size=22, weight="bold")
-        )
-        self.title_label.pack(side="left", padx=20, pady=15)
-
-        self.counter_label = ctk.CTkLabel(
-            self.header_frame, 
-            text="Extraits : 0", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#3B82F6"
-        )
-        self.counter_label.pack(side="right", padx=20)
-
-        # Formulaire
-        self.config_frame = ctk.CTkFrame(self, corner_radius=10)
-        self.config_frame.grid(row=1, column=0, padx=20, pady=5, sticky="ew")
-
-        self.url_text = ctk.CTkTextbox(self.config_frame, height=90, font=("Consolas", 12))
-        self.url_text.pack(fill="x", padx=15, pady=10)
-        self.url_text.insert("1.0", "https://httpbin.org/get\nhttps://example.com")
-
-        self.controls = ctk.CTkFrame(self.config_frame, fg_color="transparent")
-        self.controls.pack(fill="x", padx=15, pady=(0, 10))
-
-        self.conc_slider = ctk.CTkSlider(self.controls, from_=1, to=10, number_of_steps=9, width=150)
-        self.conc_slider.set(3)
-        self.conc_slider.pack(side="left", padx=5)
-
-        self.slider_label = ctk.CTkLabel(self.controls, text="Vitesse (Threads: 3)")
-        self.slider_label.pack(side="left", padx=5)
-        self.conc_slider.configure(command=lambda v: self.slider_label.configure(text=f"Vitesse (Threads: {int(v)})"))
-
-        self.btn_start = ctk.CTkButton(self.controls, text="🚀 Lancer l'extraction", fg_color="#2563EB", hover_color="#1D4ED8", command=self.start_scraping)
-        self.btn_start.pack(side="right", padx=5)
-
-        self.btn_export = ctk.CTkButton(self.controls, text="📊 Exporter Excel", fg_color="#10B981", hover_color="#059669", command=self.export_excel)
-        self.btn_export.pack(side="right", padx=5)
-
-        # Progression
-        self.progress_bar = ctk.CTkProgressBar(self, height=8)
-        self.progress_bar.grid(row=2, column=0, padx=20, pady=5, sticky="ew")
-        self.progress_bar.set(0)
-
-        # Live Feed
-        self.feed_frame = ctk.CTkFrame(self, corner_radius=10)
-        self.feed_frame.grid(row=3, column=0, padx=20, pady=(5, 15), sticky="nsew")
-        self.feed_frame.grid_columnconfigure(0, weight=1)
-        self.feed_frame.grid_rowconfigure(1, weight=1)
-
-        self.feed_title = ctk.CTkLabel(self.feed_frame, text="🟢 FLUX EN TEMPS RÉEL (LIVE DATA STREAM)", font=ctk.CTkFont(size=12, weight="bold"))
-        self.feed_title.grid(row=0, column=0, padx=15, pady=5, sticky="w")
-
-        self.textbox_live = ctk.CTkTextbox(self.feed_frame, font=("Consolas", 11), wrap="none")
-        self.textbox_live.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+if st.button("🚀 Lancer l'extraction", type="primary"):
+    urls = [u.strip() for u in urls_input.split('\n') if u.strip()]
+    if not urls:
+        st.warning("Veuillez saisir au moins une URL valide.")
+    else:
+        st.info(f"Traitement de {len(urls)} URLs en cours...")
+        scraper = AdvancedScraper(db_manager=db, max_concurrency=max_threads)
         
-        header = f"{'STATUT':<12} | {'PRIX':<18} | {'TITRE DU PRODUIT / URL':<60}\n"
-        header += "-" * 95 + "\n"
-        self.textbox_live.insert("end", header)
+        # Exécution du scraping
+        results = asyncio.run(scraper.scrape_batch(urls))
+        st.success("Extraction terminée avec succès !")
 
-    def on_item_scraped(self, item: Dict[str, Any], progress: float):
-        def _update_ui():
-            self.scraped_count += 1
-            self.counter_label.configure(text=f"Extraits : {self.scraped_count}")
-            self.progress_bar.set(progress / 100.0)
+# Section d'affichage des résultats
+st.markdown("---")
+st.header("📊 Données extraites")
 
-            status_symbol = "🟢 [SUCCÈS]" if item["status"] == "SUCCÈS" else "🔴 [ÉCHEC]"
-            line = f"{status_symbol:<12} | {item['price'][:16]:<18} | {item['title']:<60}\n"
-            
-            self.textbox_live.insert("end", line)
-            self.textbox_live.see("end")
+data = db.fetch_all_products() if hasattr(db, 'fetch_all_products') else []
 
-        self.after(0, _update_ui)
-
-    def start_scraping(self):
-        urls = [u.strip() for u in self.url_text.get("1.0", "end").strip().split("\n") if u.strip()]
-        if not urls:
-            return
-
-        self.btn_start.configure(state="disabled")
-        self.scraped_count = 0
-        self.counter_label.configure(text="Extraits : 0")
-        self.progress_bar.set(0)
-
-        concurrency = int(self.conc_slider.get())
-        threading.Thread(target=self._run_async, args=(urls, concurrency), daemon=True).start()
-
-    def _run_async(self, urls, concurrency):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        scraper = AdvancedScraper(concurrency=concurrency)
-        loop.run_until_complete(scraper.run(urls, real_time_callback=self.on_item_scraped))
-        
-        self.after(0, lambda: self.btn_start.configure(state="normal"))
-
-    def export_excel(self):
-        try:
-            self.db.export_to_excel()
-            self.textbox_live.insert("end", "\n📁 Exportation réussie vers export_produits.xlsx !\n")
-            self.textbox_live.see("end")
-        except Exception as e:
-            self.textbox_live.insert("end", f"\n❌ Erreur export : {str(e)}\n")
+if data:
+    df = pd.DataFrame(data)
+    st.dataframe(df, use_container_width=True)
+    
+    # Export Excel
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Télécharger les résultats (CSV/Excel)",
+        data=csv,
+        file_name="produits_extraits.csv",
+        mime="text/csv",
+    )
+else:
+    st.write("Aucune donnée disponible pour le moment.")
