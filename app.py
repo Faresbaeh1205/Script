@@ -1,77 +1,74 @@
-import streamlit as st
-import pandas as pd
 import asyncio
+import pandas as pd
+import streamlit as st
 from scraper import AdvancedScraper
-from database import DatabaseManager
 
-st.set_page_config(page_title="E-Commerce Scraper Pro", page_icon="⚡", layout="wide")
+st.set_page_config(
+    page_title="E-Commerce Intelligence Studio Pro",
+    page_icon="⚡",
+    layout="wide"
+)
 
 st.title("⚡ E-Commerce Intelligence Studio Pro")
-st.subheader("Scraper & Analyse de prix en temps réel")
+st.markdown("Extraisez les données produits en temps réel depuis n'importe quelle URL.")
 
-# Initialisation de la BD
-db = DatabaseManager()
+# Saisie des URLs
+urls_input = st.text_area(
+    "Entrez les URLs des produits à analyser (une par ligne) :",
+    height=150,
+    placeholder="https://exemple.com/produit1\nhttps://exemple.com/produit2"
+)
 
-# Sidebar pour la configuration
-st.sidebar.header("⚙️ Configuration")
-max_threads = st.sidebar.slider("Vitesse (Nombre de threads concurrents)", 1, 10, 3)
-
-# Zone de saisie d'URL
-urls_input = st.text_area("Entrez les URLs des produits à analyser (une par ligne) :", height=150, 
-                          placeholder="https://example.com/produit1\nhttps://example.com/produit2")
+# Paramètres
+col1, col2 = st.columns(2)
+with col1:
+    max_threads = st.slider("Vitesse / Concurrence (requêtes simultanées)", 1, 10, 3)
 
 if st.button("🚀 Lancer l'extraction", type="primary"):
-    urls = [u.strip() for u in urls_input.split('\n') if u.strip()]
+    urls = [url.strip() for url in urls_input.split("\n") if url.strip()]
+    
     if not urls:
         st.warning("Veuillez saisir au moins une URL valide.")
     else:
-        st.info(f"Traitement de {len(urls)} URLs en cours...")
-        # Initialisation sécurisée du scraper
-        try:
-            scraper = AdvancedScraper(db_manager=db, max_concurrency=max_threads)
-        except TypeError:
-            try:
-                scraper = AdvancedScraper(db=db, max_concurrency=max_threads)
-            except TypeError:
-                try:
-                    scraper = AdvancedScraper(max_concurrency=max_threads)
-                except TypeError:
-                    scraper = AdvancedScraper()
+        st.info(f"Traitement de {len(urls)} URL(s) en cours...")
         
-        # Exécution du scraping
-        # Détection et exécution dynamique de la méthode du scraper
+        # Initialisation sécurisée
+        try:
+            scraper = AdvancedScraper(max_concurrency=max_threads)
+        except TypeError:
+            scraper = AdvancedScraper()
+
+        # Exécution asynchrone sécurisée
         async def run_scraper():
-            if hasattr(scraper, 'scrape_batch'):
-                return await scraper.scrape_batch(urls)
-            elif hasattr(scraper, 'scrape_urls'):
+            if hasattr(scraper, 'scrape_urls'):
                 return await scraper.scrape_urls(urls)
+            elif hasattr(scraper, 'scrape_batch'):
+                return await scraper.scrape_batch(urls)
             elif hasattr(scraper, 'run'):
                 return await scraper.run(urls)
             elif hasattr(scraper, 'scrape'):
                 return await scraper.scrape(urls)
             else:
-                raise AttributeError("Aucune méthode d'extraction trouvée dans AdvancedScraper.")
+                raise AttributeError("Aucune méthode d'extraction trouvée.")
 
-        results = asyncio.run(run_scraper())
-        st.success("Extraction terminée avec succès !")
-
-# Section d'affichage des résultats
-st.markdown("---")
-st.header("📊 Données extraites")
-
-data = db.fetch_all_products() if hasattr(db, 'fetch_all_products') else []
-
-if data:
-    df = pd.DataFrame(data)
-    st.dataframe(df, use_container_width=True)
-    
-    # Export Excel
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Télécharger les résultats (CSV/Excel)",
-        data=csv,
-        file_name="produits_extraits.csv",
-        mime="text/csv",
-    )
-else:
-    st.write("Aucune donnée disponible pour le moment.")
+        with st.spinner("Extraction des données en arrière-plan via Playwright..."):
+            try:
+                results = asyncio.run(run_scraper())
+                
+                if results:
+                    st.success("Extraction terminée avec succès !")
+                    df = pd.DataFrame(results)
+                    st.dataframe(df, use_container_width=True)
+                    
+                    # Bouton d'export CSV
+                    csv = df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Télécharger les données (CSV)",
+                        data=csv,
+                        file_name="resultats_extraction.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.error("Aucune donnée n'a pu être extraite des URLs fournies.")
+            except Exception as e:
+                st.error(f"Une erreur est survenue lors de l'exécution : {e}")
