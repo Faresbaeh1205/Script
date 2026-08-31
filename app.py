@@ -2,8 +2,8 @@ import customtkinter as ctk
 import asyncio
 import threading
 from typing import Dict, Any
-from core.scraper import AdvancedScraper
-from core.database import DatabaseManager
+from scraper import AdvancedScraper
+from database import DatabaseManager
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
