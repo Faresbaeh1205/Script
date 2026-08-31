@@ -26,7 +26,17 @@ if st.button("🚀 Lancer l'extraction", type="primary"):
         st.warning("Veuillez saisir au moins une URL valide.")
     else:
         st.info(f"Traitement de {len(urls)} URLs en cours...")
-        scraper = AdvancedScraper(db=db, max_concurrency=max_threads)
+        # Initialisation sécurisée du scraper
+        try:
+            scraper = AdvancedScraper(db_manager=db, max_concurrency=max_threads)
+        except TypeError:
+            try:
+                scraper = AdvancedScraper(db=db, max_concurrency=max_threads)
+            except TypeError:
+                try:
+                    scraper = AdvancedScraper(max_concurrency=max_threads)
+                except TypeError:
+                    scraper = AdvancedScraper()
         
         # Exécution du scraping
         results = asyncio.run(scraper.scrape_batch(urls))
