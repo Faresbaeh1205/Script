@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import List, Dict, Any, Callable, Optional
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
+from playwright_stealth import stealth
 from database import DatabaseManager
 
 class AdvancedScraper:
@@ -12,7 +12,7 @@ class AdvancedScraper:
 
     async def _scrape_page(self, context, url: str) -> Dict[str, Any]:
         page = await context.new_page()
-        await stealth_async(page)
+        await stealth(page)
         
         result = {"url": url, "title": "N/A", "price": "N/A", "status": "ÉCHEC"}
 
