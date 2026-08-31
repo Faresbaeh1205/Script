@@ -3,7 +3,7 @@ import logging
 from typing import List, Dict, Any, Callable, Optional
 from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
-from core.database import DatabaseManager
+from database import DatabaseManager
 
 class AdvancedScraper:
     def __init__(self, concurrency: int = 3):
